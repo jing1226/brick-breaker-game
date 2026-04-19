@@ -3,18 +3,13 @@
 
 #include "raylib.h"
 
-class Paddle {
-public:
-    float x, y;
-    float width, height;
+extern float paddleWidth;
+extern float paddleHeight;
+extern Vector2 paddlePosition;
+extern float paddleSpeed;
 
-    // 构造函数
-    Paddle(float px, float py, float pw, float ph);
-
-    // 成员函数
-    void Draw();
-    void MoveLeft(float speed);
-    void MoveRight(float speed);
-};
+void initPaddle(int sw, int sh);
+void updatePaddle(int sw);
+void drawPaddle();
 
 #endif

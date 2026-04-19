@@ -1,27 +1,14 @@
 #include "Ball.h"
+#include "raylib.h"
 
-Ball::Ball(Vector2 pos, Vector2 sp, float r) {
-    position = pos;
-    speed = sp;
-    radius = r;
-}
+Vector2 ballPosition = { 0 };
+Vector2 ballVelocity = { 0 };
+float ballRadius = 10.0f;
 
-void Ball::Move() {
-    position.x += speed.x;
-    position.y += speed.y;
-}
+const float gravity = 0.02f;
+const float bounceFactor = 0.96f;
 
-// 改回画红色圆形小球
-void Ball::Draw() {
-    DrawCircleV(position, radius, RED);
-}
-
-// 改回小球的边界反弹逻辑
-void Ball::BounceEdge(int screenWidth, int screenHeight) {
-    if (position.x - radius <= 0 || position.x + radius >= screenWidth) {
-        speed.x *= -1;
-    }
-    if (position.y - radius <= 0 || position.y + radius >= screenHeight) {
-        speed.y *= -1;
-    }
+void resetBall(int screenWidth, int screenHeight) {
+    ballPosition = (Vector2){ (float)screenWidth / 2.0f, (float)screenHeight - 100.0f };
+    ballVelocity = (Vector2){ 0.0f, 0.0f };
 }

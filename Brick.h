@@ -3,17 +3,18 @@
 
 #include "raylib.h"
 
-class Brick {
-public:
-    float x, y;          // 砖块坐标
-    float width, height; // 砖块大小
-    Color color;         // 砖块颜色（由外部传入，不再随机）
+extern int brickRows;
+extern const int brickCols;
+extern int brickW;
+extern int brickH;
+extern int bricks[10][14];
+extern int goldenBrickI;
+extern int goldenBrickJ;
+extern Color brickColors[10];
 
-    // 🌟 修改构造函数：新增color参数，接收外部指定的颜色
-    Brick(float bx, float by, float bw, float bh, Color c);
-
-    // 绘制砖块
-    void Draw();
-};
+void initBricks();
+void drawBricks();
+bool isGoldenBrick(int i, int j);
+int getBrickScore(int row);
 
 #endif

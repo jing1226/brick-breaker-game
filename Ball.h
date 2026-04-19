@@ -3,17 +3,12 @@
 
 #include "raylib.h"
 
-class Ball {
-public:
-    Vector2 position;
-    Vector2 speed;
-    float radius; // 改回小球半径
+extern Vector2 ballPosition;
+extern Vector2 ballVelocity;
+extern float ballRadius;
+extern const float gravity;
+extern const float bounceFactor;
 
-    Ball(Vector2 pos, Vector2 sp, float r);
-
-    void Move();
-    void Draw();
-    void BounceEdge(int screenWidth, int screenHeight);
-};
+void resetBall(int screenWidth, int screenHeight);
 
 #endif

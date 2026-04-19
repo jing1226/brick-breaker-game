@@ -1,180 +1,272 @@
-#include <graphics.h>
-#include <conio.h>
-#include <time.h>
-#include <stdio.h>
+#include "raylib.h"
+#include "Brick.h"
+#include "Paddle.h"
+#include "Ball.h"
+#include "powerup.h"
+#include <cstring>
+#include <cctype>
+#include <vector>
 
-// --------------------- 全局变量 ---------------------
-int ballX = 400, ballY = 300;
-int ballSpeedX = 4, ballSpeedY = -4;
-int paddleX = 350, paddleY = 550;
-int paddleW = 100, paddleH = 15;
+const int screenWidth = 800;
+const int screenHeight = 600;
+
 int score = 0;
-int gameOver = 0;    // 游戏是否结束
-int isPaused = 0;    // 是否暂停
-int restartTimer = 0;// 失败后倒计时
-int failTime = 0;    // 记录失败时间
+int lives = 3;
+int lastAddScore = 0;
 
-// 砖块
-int brickW = 60;
-int brickH = 20;
-int bricks[5][8];
+char username[11] = { 0 };
+int userNameLen = 0;
 
-// --------------------- 初始化砖块 ---------------------
-void initBricks() {
-    for (int i = 0; i < 5; i++) {
-        for (int j = 0; j < 8; j++) {
-            bricks[i][j] = 1;
-        }
-    }
+float gameTotalTime = 0.0f;
+
+float ballSpeed = 1.0f;
+std::vector<PowerUp> powerUps;
+
+typedef enum {
+    SCREEN_USERNAME,
+    SCREEN_DIFFICULTY,
+    SCREEN_START_GAME,
+    SCREEN_COUNTDOWN,
+    SCREEN_PLAY,
+    SCREEN_GAME_OVER
+} GameScreen;
+
+GameScreen currentScreen = SCREEN_USERNAME;
+int selectedDifficulty = 0;
+float countdownTimer = 0.0f;
+
+bool isAlpha(char c) {
+    return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z');
 }
 
-// --------------------- 主函数 ---------------------
+int GetBrickScore(int row) {
+    return brickRows - row;
+}
+
 int main() {
-    initgraph(800, 600);
-    initBricks();
-    srand((unsigned)time(NULL));
+    SetConfigFlags(FLAG_MSAA_4X_HINT);
+    InitWindow(screenWidth, screenHeight, "Brick Game");
+    InitAudioDevice();
 
-    // 小球初始位置
-    ballX = 400;
-    ballY = 500;
-    ballSpeedX = 4;
-    ballSpeedY = -4;
+    initPaddle(screenWidth, screenHeight);
+    SetTargetFPS(60);
 
-    while (1) {
-        // 清屏
-        cleardevice();
+    while (!WindowShouldClose()) {
+        float dt = GetFrameTime();
 
-        // ===================== 按键检测 =====================
-        if (_kbhit()) {
-            char ch = _getch();
+        if (currentScreen == SCREEN_PLAY) {
+            gameTotalTime += dt;
+        }
 
-            // 【功能1】空格键：暂停 / 继续
-            if (ch == ' ') {
-                if (!gameOver) { // 只有游戏没结束才能暂停
-                    isPaused = !isPaused;
+        if (currentScreen == SCREEN_USERNAME) {
+            int key = GetCharPressed();
+            while (key > 0) {
+                if (isAlpha(key) && userNameLen < 10) {
+                    username[userNameLen++] = (char)key;
+                    username[userNameLen] = 0;
+                }
+                key = GetCharPressed();
+            }
+            if (IsKeyPressed(KEY_BACKSPACE) && userNameLen > 0)
+                username[--userNameLen] = 0;
+
+            if (IsKeyPressed(KEY_ENTER) && userNameLen > 0) {
+                currentScreen = SCREEN_DIFFICULTY;
+                selectedDifficulty = 0;
+            }
+        }
+
+        if (currentScreen == SCREEN_DIFFICULTY) {
+            if (IsKeyPressed(KEY_DOWN)) selectedDifficulty = (selectedDifficulty + 1) % 3;
+            if (IsKeyPressed(KEY_UP)) selectedDifficulty = (selectedDifficulty - 1 + 3) % 3;
+
+            if (IsKeyPressed(KEY_ENTER)) {
+                gameTotalTime = 0;
+                if (selectedDifficulty == 0) { lives = 3; brickRows = 5; }
+                if (selectedDifficulty == 1) { lives = 2; brickRows = 5; }
+                if (selectedDifficulty == 2) { lives = 1; brickRows = 6; }
+                initBricks();
+                powerUps.clear();
+                currentScreen = SCREEN_START_GAME;
+            }
+        }
+
+        if (currentScreen == SCREEN_START_GAME) {
+            if (IsKeyPressed(KEY_ENTER)) {
+                currentScreen = SCREEN_COUNTDOWN;
+                countdownTimer = 3.0f;
+                resetBall(screenWidth, screenHeight);
+                score = 0;
+                lastAddScore = 0;
+                paddleWidth = 120.0f;
+                ballSpeed = 1.0f;
+            }
+        }
+
+        if (currentScreen == SCREEN_COUNTDOWN) {
+            countdownTimer -= dt;
+            if (countdownTimer <= 0) {
+                currentScreen = SCREEN_PLAY;
+                ballVelocity = (Vector2){ 4.0f, -6.0f };
+            }
+        }
+
+        if (currentScreen == SCREEN_PLAY) {
+            updatePaddle(screenWidth);
+            ballVelocity.y += gravity;
+            ballPosition.x += ballVelocity.x * ballSpeed;
+            ballPosition.y += ballVelocity.y * ballSpeed;
+
+            if (ballPosition.x - ballRadius <= 0 || ballPosition.x + ballRadius >= screenWidth)
+                ballVelocity.x *= -1;
+
+            if (ballPosition.y - ballRadius <= 0) {
+                ballVelocity.y *= -bounceFactor;
+                ballPosition.y = ballRadius;
+            }
+
+            if (ballPosition.y + ballRadius >= screenHeight) {
+                lives--;
+                if (lives <= 0) {
+                    currentScreen = SCREEN_GAME_OVER;
+                } else {
+                    currentScreen = SCREEN_COUNTDOWN;
+                    countdownTimer = 3.0f;
+                    resetBall(screenWidth, screenHeight);
+                    paddleWidth = 120.0f;
+                    ballSpeed = 1.0f;
                 }
             }
 
-            // 【功能2】失败后 5秒内按 Enter 重新开始
-            if (ch == 13 && gameOver) { // 13 = Enter 键
-                if (clock() - failTime <= 5000) { // 5秒内
-                    // 重置游戏
-                    gameOver = 0;
-                    isPaused = 0;
-                    score = 0;
-                    initBricks();
-                    ballX = 400;
-                    ballY = 500;
-                    ballSpeedX = 4;
-                    ballSpeedY = -4;
-                }
+            Rectangle pad = { paddlePosition.x, paddlePosition.y, paddleWidth, paddleHeight };
+            if (CheckCollisionCircleRec(ballPosition, ballRadius, pad) && ballVelocity.y > 0) {
+                ballVelocity.y *= -bounceFactor;
+                ballPosition.y = paddlePosition.y - ballRadius;
             }
 
-            // 挡板左右移动
-            if (ch == 75 && paddleX > 0) {        // 左
-                paddleX -= 20;
-            }
-            if (ch == 77 && paddleX < 700) {    // 右
-                paddleX += 20;
-            }
-        }
-
-        // ===================== 暂停状态 =====================
-        if (isPaused) {
-            settextcolor(RED);
-            settextstyle(40, 0, _T("黑体"));
-            outtextxy(300, 250, _T("已暂停"));
-            outtextxy(220, 300, _T("按空格键继续游戏"));
-            Sleep(50);
-            continue; // 跳过后面的逻辑
-        }
-
-        // ===================== 游戏结束逻辑 =====================
-        if (ballY > 580 && !gameOver) {
-            gameOver = 1;
-            failTime = clock(); // 记录失败时间
-        }
-
-        // ===================== 游戏运行中 =====================
-        if (!gameOver && !isPaused) {
-            // 小球移动
-            ballX += ballSpeedX;
-            ballY += ballSpeedY;
-
-            // 墙壁反弹
-            if (ballX <= 10 || ballX >= 790) ballSpeedX = -ballSpeedX;
-            if (ballY <= 10) ballSpeedY = -ballSpeedY;
-
-            // 挡板碰撞
-            if (ballY + 10 >= paddleY &&
-                ballX >= paddleX &&
-                ballX <= paddleX + paddleW) {
-                ballSpeedY = -ballSpeedY;
-            }
-
-            // 砖块碰撞
-            for (int i = 0; i < 5; i++) {
-                for (int j = 0; j < 8; j++) {
+            int totalAdd = 0;
+            for (int i = 0; i < brickRows; i++) {
+                for (int j = 0; j < brickCols; j++) {
                     if (bricks[i][j] == 1) {
-                        int x = j * (brickW + 5) + 50;
-                        int y = i * (brickH + 5) + 50;
-                        if (ballX + 10 >= x && ballX - 10 <= x + brickW &&
-                            ballY + 10 >= y && ballY - 10 <= y + brickH) {
+                        Rectangle r = {
+                            (float)j * brickW,
+                            (float)i * brickH,
+                            (float)brickW - 2,
+                            (float)brickH - 2
+                        };
+                        if (CheckCollisionCircleRec(ballPosition, ballRadius, r)) {
                             bricks[i][j] = 0;
-                            ballSpeedY = -ballSpeedY;
-                            score += 10;
+                            totalAdd += GetBrickScore(i);
+                            ballVelocity.y *= -1;
+
+                            if (GetRandomValue(0, 100) < 30) {
+                                PowerUpType type = (PowerUpType)GetRandomValue(0, 2);
+                                powerUps.push_back(CreatePowerUp((Vector2){ r.x + r.width / 2, r.y }, type));
+                            }
                         }
                     }
                 }
             }
-        }
 
-        // ===================== 绘制 =====================
-        // 小球
-        setfillcolor(YELLOW);
-        solidcircle(ballX, ballY, 10);
+            if (totalAdd > 0) {
+                score += totalAdd;
+                lastAddScore = totalAdd;
+            }
 
-        // 挡板
-        setfillcolor(LIGHTBLUE);
-        solidrectangle(paddleX, paddleY, paddleX + paddleW, paddleY + paddleH);
-
-        // 砖块
-        for (int i = 0; i < 5; i++) {
-            for (int j = 0; j < 8; j++) {
-                if (bricks[i][j] == 1) {
-                    int x = j * (brickW + 5) + 50;
-                    int y = i * (brickH + 5) + 50;
-                    setfillcolor(LIGHTGREEN);
-                    solidrectangle(x, y, x + brickW, y + brickH);
+            for (auto &p : powerUps) {
+                UpdatePowerUp(&p, dt);
+                if (CheckCollisionCircleRec(p.position, 15, pad)) {
+                    ApplyPowerUp(p, &paddleWidth, &ballSpeed);
+                    p.active = false;
                 }
+                if (p.position.y > screenHeight) {
+                    p.active = false;
+                }
+            }
+
+            for (auto it = powerUps.begin(); it != powerUps.end();) {
+                if (!it->active) it = powerUps.erase(it);
+                else ++it;
             }
         }
 
-        // 分数
-        char str[50];
-        sprintf(str, "分数：%d", score);
-        settextcolor(WHITE);
-        settextstyle(25, 0, _T("黑体"));
-        outtextxy(20, 20, str);
-
-        // ===================== 游戏失败界面 =====================
-        if (gameOver) {
-            settextcolor(RED);
-            settextstyle(40, 0, _T("黑体"));
-            outtextxy(280, 250, _T("游戏失败"));
-
-            // 倒计时
-            int left = 5 - (clock() - failTime) / 1000;
-            if (left < 0) left = 0;
-
-            char tip[100];
-            sprintf(tip, "%d秒内按Enter重新开始", left);
-            outtextxy(200, 300, tip);
+        if (currentScreen == SCREEN_GAME_OVER) {
+            if (IsKeyPressed(KEY_ENTER)) currentScreen = SCREEN_DIFFICULTY;
+            if (IsKeyPressed(KEY_SPACE)) currentScreen = SCREEN_USERNAME;
         }
 
-        Sleep(15);
+        BeginDrawing();
+        ClearBackground((Color){ 245, 245, 245, 255 });
+
+        int seconds = (int)gameTotalTime;
+
+        if (currentScreen == SCREEN_USERNAME) {
+            DrawText("ENTER USERNAME", 220, 120, 50, DARKBLUE);
+            DrawRectangleRounded((Rectangle){ 240, 260, 320, 60 }, 0.2f, 10, LIGHTGRAY);
+            DrawText(username, 250, 270, 30, BLACK);
+            DrawText("Press ENTER to continue", 230, 350, 30, DARKPURPLE);
+        }
+
+        if (currentScreen == SCREEN_DIFFICULTY) {
+            DrawText("SELECT DIFFICULTY", 200, 100, 55, DARKBLUE);
+            const char* opts[] = {
+                "EASY    3 lives",
+                "MEDIUM  2 lives",
+                "HARD    1 life"
+            };
+            int ys[] = { 220, 300, 380 };
+            for (int i = 0; i < 3; i++) {
+                bool sel = (selectedDifficulty == i);
+                Color c = sel ? RED : DARKGRAY;
+                DrawRectangleRounded((Rectangle){ 200.0f, (float)ys[i]-10, 400, 70 }, 0.2f, 10, WHITE);
+                DrawRectangleRoundedLines((Rectangle){ 200.0f, (float)ys[i]-10, 400, 70 }, 0.2f, 10, 3, c);
+                DrawText(opts[i], 230, ys[i], 35, c);
+            }
+        }
+
+        if (currentScreen == SCREEN_START_GAME) {
+            DrawText(TextFormat("PLAYER: %s", username), 250, 150, 40, DARKBLUE);
+            DrawText("READY TO PLAY", 230, 280, 60, RED);
+            DrawText("PRESS ENTER TO START", 200, 400, 40, DARKPURPLE);
+        }
+
+        if (currentScreen == SCREEN_COUNTDOWN) {
+            drawBricks();
+            drawPaddle();
+            DrawCircleV(ballPosition, ballRadius, RED);
+            DrawText(TextFormat("%d", (int)countdownTimer + 1), screenWidth/2-25, screenHeight/2-40, 100, RED);
+        }
+
+        if (currentScreen == SCREEN_PLAY || currentScreen == SCREEN_GAME_OVER) {
+            drawBricks();
+            drawPaddle();
+            DrawCircleV(ballPosition, ballRadius, RED);
+
+            for (auto &p : powerUps) DrawPowerUp(p);
+
+            DrawText(TextFormat("SCORE: %d", score), 20, 20, 32, BLACK);
+            DrawText("LIVES:", 630, 20, 32, BLACK);
+            for (int i = 0; i < lives; i++) DrawCircle(710 + i*28, 35, 10, RED);
+            if (lastAddScore > 0 && currentScreen == SCREEN_PLAY)
+                DrawText(TextFormat("+%d", lastAddScore), screenWidth/2 - 20, 100, 40, GREEN);
+
+            // 时间：砖块下方靠左，带 s 单位
+            DrawText(TextFormat("TIME: %ds", seconds), 20, 480, 32, BLACK);
+        }
+
+        if (currentScreen == SCREEN_GAME_OVER) {
+            DrawRectangleRounded((Rectangle){ 230, 190, 340, 220 }, 0.2f, 10, WHITE);
+            DrawText("GAME OVER", 260, 210, 65, RED);
+            DrawText(TextFormat("SCORE: %d", score), 300, 300, 40, DARKPURPLE);
+            DrawText(TextFormat("TIME: %ds", seconds), 300, 350, 40, DARKPURPLE);
+            DrawText("ENTER = PLAY AGAIN", 270, 410, 25, DARKGRAY);
+            DrawText("SPACE = NEW PLAYER", 260, 440, 25, DARKGRAY);
+        }
+
+        EndDrawing();
     }
 
-    closegraph();
+    CloseAudioDevice();
+    CloseWindow();
     return 0;
 }
