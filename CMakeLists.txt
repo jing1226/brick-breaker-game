@@ -1,14 +1,23 @@
 cmake_minimum_required(VERSION 3.10)
-project(breakout_week2)
+project(breakout)
 
-find_package(raylib REQUIRED)
-
-add_executable(breakout_week2
+set(CMAKE_CXX_STANDARD 11)
+add_executable(breakout
     main.cpp
     Ball.cpp
     Brick.cpp
     Paddle.cpp
-    powerup.cpp  
+    powerup.cpp
+    tool.cpp
+    enet/enet.c
 )
 
-target_link_libraries(breakout_week2 raylib)
+
+include_directories(enet/include)
+
+find_package(raylib REQUIRED)
+target_link_libraries(breakout raylib)
+
+if (WIN32)
+    target_link_libraries(breakout ws2_32 winmm)
+endif()
