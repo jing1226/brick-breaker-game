@@ -11,6 +11,9 @@ extern int bricks[10][14];
 extern int goldenBrickI;
 extern int goldenBrickJ;
 extern Color brickColors[10];
+extern bool asyncLoadComplete;
+
+bool isAsyncLoadComplete();
 
 void initBricks();
 void drawBricks();

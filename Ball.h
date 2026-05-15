@@ -9,6 +9,6 @@ extern float ballRadius;
 extern const float gravity;
 extern const float bounceFactor;
 
-void resetBall(int screenWidth, int screenHeight);
+void resetBall(int screenWidth, int screenHeight, float initialYVel = 0.0f);
 
 #endif
