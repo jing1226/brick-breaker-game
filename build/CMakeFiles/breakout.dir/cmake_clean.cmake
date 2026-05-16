@@ -11,6 +11,8 @@ file(REMOVE_RECURSE
   "CMakeFiles/breakout.dir/main.cpp.o.d"
   "CMakeFiles/breakout.dir/powerup.cpp.o"
   "CMakeFiles/breakout.dir/powerup.cpp.o.d"
+  "CMakeFiles/breakout.dir/resource_manager.cpp.o"
+  "CMakeFiles/breakout.dir/resource_manager.cpp.o.d"
   "CMakeFiles/breakout.dir/tool.cpp.o"
   "CMakeFiles/breakout.dir/tool.cpp.o.d"
   "breakout"

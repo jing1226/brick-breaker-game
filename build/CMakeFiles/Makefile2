@@ -81,12 +81,12 @@ clean: CMakeFiles/breakout.dir/clean
 CMakeFiles/breakout.dir/all:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/breakout.dir/build.make CMakeFiles/breakout.dir/depend
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/breakout.dir/build.make CMakeFiles/breakout.dir/build
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --progress-dir=/mnt/c/Users/jing0/Desktop/week2_template/build/CMakeFiles --progress-num=1,2,3,4,5,6,7,8 "Built target breakout"
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --progress-dir=/mnt/c/Users/jing0/Desktop/week2_template/build/CMakeFiles --progress-num=1,2,3,4,5,6,7,8,9 "Built target breakout"
 .PHONY : CMakeFiles/breakout.dir/all
 
 # Build rule for subdir invocation for target.
 CMakeFiles/breakout.dir/rule: cmake_check_build_system
-	$(CMAKE_COMMAND) -E cmake_progress_start /mnt/c/Users/jing0/Desktop/week2_template/build/CMakeFiles 8
+	$(CMAKE_COMMAND) -E cmake_progress_start /mnt/c/Users/jing0/Desktop/week2_template/build/CMakeFiles 9
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 CMakeFiles/breakout.dir/all
 	$(CMAKE_COMMAND) -E cmake_progress_start /mnt/c/Users/jing0/Desktop/week2_template/build/CMakeFiles 0
 .PHONY : CMakeFiles/breakout.dir/rule

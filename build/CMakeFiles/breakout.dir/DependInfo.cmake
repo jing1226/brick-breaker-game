@@ -14,6 +14,7 @@ set(CMAKE_DEPENDS_DEPENDENCY_FILES
   "/mnt/c/Users/jing0/Desktop/week2_template/Paddle.cpp" "CMakeFiles/breakout.dir/Paddle.cpp.o" "gcc" "CMakeFiles/breakout.dir/Paddle.cpp.o.d"
   "/mnt/c/Users/jing0/Desktop/week2_template/main.cpp" "CMakeFiles/breakout.dir/main.cpp.o" "gcc" "CMakeFiles/breakout.dir/main.cpp.o.d"
   "/mnt/c/Users/jing0/Desktop/week2_template/powerup.cpp" "CMakeFiles/breakout.dir/powerup.cpp.o" "gcc" "CMakeFiles/breakout.dir/powerup.cpp.o.d"
+  "/mnt/c/Users/jing0/Desktop/week2_template/resource_manager.cpp" "CMakeFiles/breakout.dir/resource_manager.cpp.o" "gcc" "CMakeFiles/breakout.dir/resource_manager.cpp.o.d"
   "/mnt/c/Users/jing0/Desktop/week2_template/tool.cpp" "CMakeFiles/breakout.dir/tool.cpp.o" "gcc" "CMakeFiles/breakout.dir/tool.cpp.o.d"
   )
 

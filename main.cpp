@@ -2,6 +2,8 @@
 #include "Brick.h"
 #include "Paddle.h"
 #include "Ball.h"
+#include "tool.h"
+#include "resource_manager.h"
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -18,8 +20,10 @@ extern "C" {
 #include <chrono>
 #include <cmath>
 #include <vector>
+#include <set>
 #include <fstream>
 #include <algorithm>
+#include <chrono>
 
 using namespace std;
 
@@ -125,6 +129,20 @@ ENetHost* netHost = nullptr;
 ENetPeer* netPeer = nullptr;
 uint8_t clientInputLeft = 0;
 uint8_t clientInputRight = 0;
+
+// 全局资源管理器
+ResourceManager* gResourceManager = nullptr;
+
+// ==================== 空间分割网格系统全局变量 ====================
+SpatialGrid* spatialGrid = nullptr;
+const int SPATIAL_GRID_WIDTH = 8;   // 网格分割数（宽）
+const int SPATIAL_GRID_HEIGHT = 6;  // 网格分割数（高）
+bool debugDrawGrid = false;  // 调试绘制网格开关
+std::mutex spatialGridPtrMutex;
+
+// 性能测量变量
+float lastCollisionCheckTime = 0.0f;  // 上一帧碰撞检测耗时（毫秒）
+float avgCollisionCheckTime = 0.0f;   // 平均耗时（带滤波）
 
 void DrawCenteredText(const char* text, int y, int fontSize, Color color) {
     int w = MeasureText(text, fontSize);
@@ -262,6 +280,16 @@ void ResetGame() {
     scoreSaved = false;
     setDifficultyOptions();
     initBricks();
+    // 初始化/重建空间分割网格以匹配当前砖块布局
+    {
+        std::lock_guard<std::mutex> guard(spatialGridPtrMutex);
+        if (spatialGrid) {
+            DestroySpatialGrid(spatialGrid);
+            spatialGrid = nullptr;
+        }
+        spatialGrid = CreateSpatialGrid(SCREEN_WIDTH, SCREEN_HEIGHT, brickRows, brickCols, brickW, brickH, SPATIAL_GRID_WIDTH, SPATIAL_GRID_HEIGHT);
+        InitializeGridFromBricks(spatialGrid, bricks);
+    }
     initPaddle(SCREEN_WIDTH, SCREEN_HEIGHT);
     resetBall(SCREEN_WIDTH, SCREEN_HEIGHT, slowBallDropSpeed);
     paddleRightX = SCREEN_WIDTH - 150;
@@ -369,6 +397,12 @@ void readState() {
                 bricks[i][j] = packet.bricks[i][j];
             }
         }
+        {
+            std::lock_guard<std::mutex> guard(spatialGridPtrMutex);
+            if (spatialGrid) {
+                InitializeGridFromBricks(spatialGrid, bricks);
+            }
+        }
     }
     fclose(f);
 }
@@ -396,8 +430,16 @@ void startAsyncLoad() {
     isLoading = true;
     loadFinished = false;
 
-    std::thread([]() {
-        std::this_thread::sleep_for(std::chrono::seconds(3));
+    // 使用 ResourceManager 异步预加载示例
+    const std::string texPath = "resources/brick.png";
+    if (gResourceManager) {
+        PreloadTextureAsync(gResourceManager, texPath);
+    }
+    std::thread([texPath]() {
+        // 等待资源被缓存（轮询），然后标记加载完成
+        while (gResourceManager && !IsTextureLoaded(gResourceManager, texPath)) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(50));
+        }
         std::lock_guard<std::mutex> guard(loadMutex);
         loadFinished = true;
         isLoading = false;
@@ -447,6 +489,12 @@ void processNetworkEvents() {
                                 bricks[i][j] = statePacket->bricks[i][j];
                             }
                         }
+                        {
+                            std::lock_guard<std::mutex> guard(spatialGridPtrMutex);
+                            if (spatialGrid) {
+                                InitializeGridFromBricks(spatialGrid, bricks);
+                            }
+                        }
                     }
                 }
                 enet_packet_destroy(event.packet);
@@ -477,6 +525,8 @@ int main(int argc, char** argv) {
     SetConfigFlags(FLAG_WINDOW_RESIZABLE);
     InitWindow(SCREEN_WIDTH, SCREEN_HEIGHT, isHost ? "HOST (1P)" : "CLIENT (2P)");
     SetTargetFPS(60);
+    // 初始化资源管理器（线程安全的资源缓存）
+    gResourceManager = InitResourceManager();
     loadLeaderboard();
     ResetGame();
 
@@ -520,6 +570,11 @@ int main(int argc, char** argv) {
         int h = GetScreenHeight();
 
         processNetworkEvents();
+
+        // 按 G 切换调试网格绘制
+        if (IsKeyPressed(KEY_G)) {
+            debugDrawGrid = !debugDrawGrid;
+        }
 
         if (IsKeyPressed(KEY_L)) {
             startAsyncLoad();
@@ -662,12 +717,21 @@ int main(int argc, char** argv) {
                 }
 
                 bool hitBrick = false;
-                for (int i = 0; i < brickRows && !hitBrick; i++) {
-                    for (int j = 0; j < brickCols && !hitBrick; j++) {
+                auto collisionCheckStart = std::chrono::high_resolution_clock::now();
+                if (spatialGrid) {
+                    static std::vector<std::pair<int,int>> candidates;
+                    GetBricksInRadius(spatialGrid, ballPosition, ballRadius, candidates);
+                    for (auto &pr : candidates) {
+                        if (hitBrick) break;
+                        int i = pr.first;
+                        int j = pr.second;
+                        if (i < 0 || i >= brickRows || j < 0 || j >= brickCols) continue;
                         if (bricks[i][j]) {
                             Rectangle br = {(float)(j * brickW), (float)(i * brickH), (float)(brickW - 2), (float)(brickH - 2)};
                             if (CheckCollisionCircleRec(ballPosition, ballRadius, br)) {
                                 bricks[i][j] = 0;
+                                // 同步更新网格
+                                UpdateGridCell(spatialGrid, i, j, false);
                                 ballVelocity.y *= -1;
                                 ballVelocity.x += (GetRandomValue(-1, 1) * 0.5f);
                                 currentScore += GetBrickScoreByRow(i);
@@ -676,7 +740,28 @@ int main(int argc, char** argv) {
                             }
                         }
                     }
+                } else {
+                    // 回退到逐个砖块检测
+                    for (int i = 0; i < brickRows && !hitBrick; i++) {
+                        for (int j = 0; j < brickCols && !hitBrick; j++) {
+                            if (bricks[i][j]) {
+                                Rectangle br = {(float)(j * brickW), (float)(i * brickH), (float)(brickW - 2), (float)(brickH - 2)};
+                                if (CheckCollisionCircleRec(ballPosition, ballRadius, br)) {
+                                    bricks[i][j] = 0;
+                                    ballVelocity.y *= -1;
+                                    ballVelocity.x += (GetRandomValue(-1, 1) * 0.5f);
+                                    currentScore += GetBrickScoreByRow(i);
+                                    spawnBrickParticles(i, j, brickColors[i % 6]);
+                                    hitBrick = true;
+                                }
+                            }
+                        }
+                    }
                 }
+                auto collisionCheckEnd = std::chrono::high_resolution_clock::now();
+                float collisionTime = std::chrono::duration<float, std::milli>(collisionCheckEnd - collisionCheckStart).count();
+                lastCollisionCheckTime = collisionTime;
+                avgCollisionCheckTime = avgCollisionCheckTime * 0.9f + collisionTime * 0.1f;
 
                 if (ballPosition.y + ballRadius >= h) {
                     lives--;
@@ -760,8 +845,12 @@ int main(int argc, char** argv) {
             DrawRectangle(paddleRightX, paddlePosition.y, paddleWidth, paddleHeight, RED);
             DrawCircleV(ballPosition, ballRadius, MAROON);
             drawParticles();
+            if (debugDrawGrid && spatialGrid) DebugDrawGrid(spatialGrid);
             DrawText(TextFormat("SCORE: %d", currentScore), 20, 20, 25, BLACK);
             DrawText(TextFormat("LIVES: %d", lives), w - 120, 20, 25, BLACK);
+            DrawText(TextFormat("FPS: %d", GetFPS()), w/2 - 40, 20, 20, DARKGRAY);
+            DrawText(TextFormat("Collision: %.2fms", lastCollisionCheckTime), 20, 45, 18, BLUE);
+            DrawText(TextFormat("Avg: %.2fms", avgCollisionCheckTime), 20, 65, 18, BLUE);
         }
 
         if (isHost) {
@@ -777,10 +866,18 @@ int main(int argc, char** argv) {
         }
 
         DrawText("PRESS L TO LOAD ASSET", 10, 125, 20, DARKBLUE);
+        DrawText("PRESS G TO TOGGLE GRID DEBUG", 10, 145, 20, DARKBLUE);
         if (loading) {
             DrawCenteredText("LOADING ASSET...", h/2, 40, PURPLE);
         } else if (finished) {
             DrawText("LOAD COMPLETE! BRICKS TURN GREEN.", 10, 150, 20, GREEN);
+            // 如果资源已加载，展示示例纹理
+            if (gResourceManager && IsTextureLoaded(gResourceManager, "resources/brick.png")) {
+                Texture2D tex = GetTexture(gResourceManager, "resources/brick.png");
+                if (tex.id > 0) {
+                    DrawTexture(tex, w - tex.width - 20, 50, WHITE);
+                }
+            }
         }
 
         EndDrawing();
@@ -788,6 +885,14 @@ int main(int argc, char** argv) {
 
     if (netHost) {
         enet_host_destroy(netHost);
+    }
+    if (gResourceManager) {
+        DestroyResourceManager(gResourceManager);
+        gResourceManager = nullptr;
+    }
+    if (spatialGrid) {
+        DestroySpatialGrid(spatialGrid);
+        spatialGrid = nullptr;
     }
     CloseWindow();
     return 0;

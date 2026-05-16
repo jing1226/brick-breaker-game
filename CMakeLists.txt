@@ -9,6 +9,7 @@ add_executable(breakout
     Paddle.cpp
     powerup.cpp
     tool.cpp
+    resource_manager.cpp
     enet/enet.c
 )
 
