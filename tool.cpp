@@ -73,14 +73,6 @@ SpatialGrid* CreateSpatialGrid(int screenWidth, int screenHeight,
     
     // 初始化网格单元
     grid->cells.resize(gridWidth * gridHeight);
-    // 初始化砖块到网格的映射表，默认未映射
-    grid->brickToCell.assign(grid->brickRows * grid->brickCols, -1);
-    // 初始化重用访问标记
-    grid->visited.assign(grid->brickRows * grid->brickCols, 0);
-    grid->visitedList.clear();
-    // 预估每个单元的容纳空间以减少重分配
-    int avg = std::max(1, (grid->brickRows * grid->brickCols) / (gridWidth * gridHeight));
-    for (auto &cell : grid->cells) cell.brickIndices.reserve(avg);
     
     return grid;
 }
@@ -91,7 +83,6 @@ SpatialGrid* CreateSpatialGrid(int screenWidth, int screenHeight,
 void DestroySpatialGrid(SpatialGrid* grid) {
     if (grid) {
         grid->cells.clear();
-        grid->brickToCell.clear();
         delete grid;
     }
 }
@@ -100,28 +91,16 @@ void DestroySpatialGrid(SpatialGrid* grid) {
  * 从砖块数组初始化网格（游戏启动时调用）
  */
 void InitializeGridFromBricks(SpatialGrid* grid, int bricks[10][14]) {
-    std::lock_guard<std::mutex> guard(grid->mtx);
     // 清空所有网格单元
     for (int i = 0; i < grid->gridWidth * grid->gridHeight; i++) {
         grid->cells[i].brickIndices.clear();
     }
-    // 初始化映射表
-    grid->brickToCell.assign(grid->brickRows * grid->brickCols, -1);
+    
     // 遍历所有砖块，将其加入对应的网格单元
     for (int i = 0; i < grid->brickRows; i++) {
         for (int j = 0; j < grid->brickCols; j++) {
             if (bricks[i][j]) {
-                // 计算砖块的世界坐标（中心）
-                float brickCenterX = j * grid->brickW + grid->brickW / 2.0f;
-                float brickCenterY = i * grid->brickH + grid->brickH / 2.0f;
-                int gridX = (int)(brickCenterX / grid->cellWidth);
-                int gridY = (int)(brickCenterY / grid->cellHeight);
-                gridX = std::max(0, std::min(gridX, grid->gridWidth - 1));
-                gridY = std::max(0, std::min(gridY, grid->gridHeight - 1));
-                int cellIndex = gridY * grid->gridWidth + gridX;
-                int brickIndex = i * grid->brickCols + j;
-                grid->cells[cellIndex].brickIndices.push_back(brickIndex);
-                grid->brickToCell[brickIndex] = cellIndex;
+                UpdateGridCell(grid, i, j, true);
             }
         }
     }
@@ -135,55 +114,35 @@ void InitializeGridFromBricks(SpatialGrid* grid, int bricks[10][14]) {
  * @param isActive 砖块是否活跃（存在）
  */
 void UpdateGridCell(SpatialGrid* grid, int brickI, int brickJ, bool isActive) {
-    std::lock_guard<std::mutex> guard(grid->mtx);
-    int brickIndex = brickI * grid->brickCols + brickJ;
-    // 计算砖块的目标单元（基于当前位置）
+    // 计算砖块的世界坐标（中心）
     float brickCenterX = brickJ * grid->brickW + grid->brickW / 2.0f;
     float brickCenterY = brickI * grid->brickH + grid->brickH / 2.0f;
-    int targetGridX = (int)(brickCenterX / grid->cellWidth);
-    int targetGridY = (int)(brickCenterY / grid->cellHeight);
-    targetGridX = std::max(0, std::min(targetGridX, grid->gridWidth - 1));
-    targetGridY = std::max(0, std::min(targetGridY, grid->gridHeight - 1));
-    int targetCell = targetGridY * grid->gridWidth + targetGridX;
-    int prevCell = -1;
-    if ((size_t)brickIndex < grid->brickToCell.size()) prevCell = grid->brickToCell[brickIndex];
-
+    
+    // 计算砖块所属的网格单元
+    int gridX = (int)(brickCenterX / grid->cellWidth);
+    int gridY = (int)(brickCenterY / grid->cellHeight);
+    
+    // 边界检查
+    gridX = std::max(0, std::min(gridX, grid->gridWidth - 1));
+    gridY = std::max(0, std::min(gridY, grid->gridHeight - 1));
+    
+    int cellIndex = gridY * grid->gridWidth + gridX;
+    int brickIndex = brickI * grid->brickCols + brickJ;
+    
     if (isActive) {
-        // 如果之前映射在别的单元，先移除
-        if (prevCell != -1 && prevCell != targetCell) {
-            auto &oldIndices = grid->cells[prevCell].brickIndices;
-            auto it = std::find(oldIndices.begin(), oldIndices.end(), brickIndex);
-            if (it != oldIndices.end()) oldIndices.erase(it);
-        }
-        // 添加到目标单元（若不存在）
-        auto &indices = grid->cells[targetCell].brickIndices;
-        if (std::find(indices.begin(), indices.end(), brickIndex) == indices.end()) {
+        // 添加砖块到网格单元（避免重复）
+        auto& indices = grid->cells[cellIndex].brickIndices;
+        auto it = std::find(indices.begin(), indices.end(), brickIndex);
+        if (it == indices.end()) {
             indices.push_back(brickIndex);
         }
-        grid->brickToCell[brickIndex] = targetCell;
     } else {
-        // 移除砖块（从之前映射的单元中）
-        if (prevCell != -1 && prevCell < (int)grid->cells.size()) {
-            auto &indices = grid->cells[prevCell].brickIndices;
-            // 快速移除：交换并弹出
-            for (size_t k = 0; k < indices.size(); ++k) {
-                if (indices[k] == brickIndex) {
-                    indices[k] = indices.back();
-                    indices.pop_back();
-                    break;
-                }
-            }
-        } else {
-            auto &indices = grid->cells[targetCell].brickIndices;
-            for (size_t k = 0; k < indices.size(); ++k) {
-                if (indices[k] == brickIndex) {
-                    indices[k] = indices.back();
-                    indices.pop_back();
-                    break;
-                }
-            }
+        // 从网格单元中移除砖块
+        auto& indices = grid->cells[cellIndex].brickIndices;
+        auto it = std::find(indices.begin(), indices.end(), brickIndex);
+        if (it != indices.end()) {
+            indices.erase(it);
         }
-        grid->brickToCell[brickIndex] = -1;
     }
 }
 
@@ -195,46 +154,48 @@ void UpdateGridCell(SpatialGrid* grid, int brickI, int brickJ, bool isActive) {
  * @param radius 球的半径
  * @return 返回砖块坐标对的向量 (i, j)
  */
-void GetBricksInRadius(SpatialGrid* grid, Vector2 ballPos, float radius, std::vector<std::pair<int,int>>& out) {
-    out.clear();
-    std::lock_guard<std::mutex> guard(grid->mtx);
+std::vector<std::pair<int,int>> GetBricksInRadius(SpatialGrid* grid, Vector2 ballPos, float radius) {
+    std::vector<std::pair<int,int>> result;
+    
     // 确定球所在的主网格单元
     int centerGridX = (int)(ballPos.x / grid->cellWidth);
     int centerGridY = (int)(ballPos.y / grid->cellHeight);
+    
     centerGridX = std::max(0, std::min(centerGridX, grid->gridWidth - 1));
     centerGridY = std::max(0, std::min(centerGridY, grid->gridHeight - 1));
+    
     // 获取可能与球碰撞的网格范围（包括相邻网格）
     int minGridX = std::max(0, centerGridX - 1);
     int maxGridX = std::min(grid->gridWidth - 1, centerGridX + 1);
     int minGridY = std::max(0, centerGridY - 1);
     int maxGridY = std::min(grid->gridHeight - 1, centerGridY + 1);
-    // 收集所有可能的砖块（使用 visited 标记避免重复，并记录以便清理）
+    
+    // 收集所有可能的砖块
+    std::set<int> brickSet;  // 使用set避免重复
     for (int gy = minGridY; gy <= maxGridY; gy++) {
         for (int gx = minGridX; gx <= maxGridX; gx++) {
             int cellIndex = gy * grid->gridWidth + gx;
             const auto& indices = grid->cells[cellIndex].brickIndices;
             for (int idx : indices) {
-                if (idx < 0 || idx >= (int)grid->visited.size()) continue;
-                if (!grid->visited[idx]) {
-                    grid->visited[idx] = 1;
-                    grid->visitedList.push_back(idx);
-                    int i = idx / grid->brickCols;
-                    int j = idx % grid->brickCols;
-                    out.push_back({i, j});
-                }
+                brickSet.insert(idx);
             }
         }
     }
-    // 清理 visited 标记
-    for (int idx : grid->visitedList) grid->visited[idx] = 0;
-    grid->visitedList.clear();
+    
+    // 转换为坐标对
+    for (int idx : brickSet) {
+        int i = idx / grid->brickCols;
+        int j = idx % grid->brickCols;
+        result.push_back({i, j});
+    }
+    
+    return result;
 }
 
 /**
  * 调试绘制网格（用于验证网格系统）
  */
 void DebugDrawGrid(SpatialGrid* grid) {
-    std::lock_guard<std::mutex> guard(grid->mtx);
     // 绘制网格线
     for (int i = 0; i <= grid->gridWidth; i++) {
         float x = i * grid->cellWidth;

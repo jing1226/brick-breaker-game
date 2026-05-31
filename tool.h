@@ -3,7 +3,6 @@
 
 #include "raylib.h"
 #include <vector>
-#include <mutex>
 
 typedef enum {
     TOOL_MULTI_BALL,
@@ -39,10 +38,6 @@ typedef struct {
     int brickCols;              // 砖块总列数
     int brickW;                 // 砖块宽度
     int brickH;                 // 砖块高度
-    std::vector<int> brickToCell; // 映射：砖块索引 -> 所在网格单元索引（-1 表示未映射）
-    std::mutex mtx;             // 网格内部锁，保证多线程安全
-    std::vector<unsigned char> visited; // 临时访问标记，重用以避免频繁分配
-    std::vector<int> visitedList; // 记录已标记索引以便快速清理
 } SpatialGrid;
 
 // 函数声明
@@ -53,8 +48,7 @@ SpatialGrid* CreateSpatialGrid(int screenWidth, int screenHeight,
 void DestroySpatialGrid(SpatialGrid* grid);
 void InitializeGridFromBricks(SpatialGrid* grid, int bricks[10][14]);
 void UpdateGridCell(SpatialGrid* grid, int brickI, int brickJ, bool isActive);
-// 将结果写入 out 参数以避免分配
-void GetBricksInRadius(SpatialGrid* grid, Vector2 ballPos, float radius, std::vector<std::pair<int,int>>& out);
+std::vector<std::pair<int,int>> GetBricksInRadius(SpatialGrid* grid, Vector2 ballPos, float radius);
 void DebugDrawGrid(SpatialGrid* grid);  // 调试用：绘制网格线
 
 #endif
